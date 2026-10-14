@@ -42,6 +42,7 @@ h3{font-family:var(--display);font-weight:800;font-size:1.05rem;letter-spacing:.
 .field{display:flex;flex-direction:column;gap:5px;min-width:0}
 .full{grid-column:1/-1}
 label{font-size:.72rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+label .st{text-transform:none;letter-spacing:0;color:var(--warn);font-weight:500}
 input,select,textarea{width:100%;font:inherit;font-size:16px;color:var(--ink);background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:11px 12px;min-height:46px}
 select{appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:32px}
 textarea{min-height:76px;resize:vertical}
@@ -143,11 +144,12 @@ nav button.active{color:var(--ink);border-top-color:var(--red)}
         <div class="grid">
           <div class="field"><label for="mYear">Année</label><select id="mYear"></select></div>
           <div class="field"><label for="mMake">Marque</label><select id="mMake"><option value="">Choisir…</option></select></div>
-          <div class="field full"><label for="mModel">Modèle <span id="mModelSt"></span></label><input id="mModel" list="mModelList" autocomplete="off" placeholder="Ex. RAV4"><datalist id="mModelList"></datalist></div>
-          <div class="field full"><label for="mTrim">Version / motorisation</label><input id="mTrim" autocomplete="off" placeholder="Ex. XLE hybride 2,5 L"></div>
+          <div class="field full"><label for="mModel">Modèle <span class="st" id="mModelSt"></span></label><select id="mModel" disabled><option value="">Choisir la marque d'abord</option></select></div>
+          <div class="field full"><label for="mTrim">Version / motorisation <span class="st" id="mTrimSt"></span></label><select id="mTrim" disabled><option value="">Choisir le modèle d'abord</option></select></div>
         </div>
+        <p class="hint" id="mTrimHint" hidden style="margin-top:10px"></p>
         <p class="err" id="mErr" hidden style="margin-top:10px"></p>
-        <div class="actions" style="margin-top:12px"><button class="btn grow" id="mGo">Continuer</button></div>
+        <div class="actions" style="margin-top:12px"><button class="btn grow" id="mGo" disabled>Ouvrir la fiche</button></div>
       </details>
     </div>
   </section>
@@ -243,7 +245,7 @@ nav button.active{color:var(--ink);border-top-color:var(--red)}
 <script src="zxing.min.js"></script>
 <script>
 "use strict";
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.1.0";
 const $ = id => document.getElementById(id);
 
 /* ======================= NIV : outils purs ======================= */
@@ -608,48 +610,121 @@ function presetFrom(c){
   return { year: c.year, make, makeOther: make === "Autre" ? c.make : "", model: c.model, trim: [c.trim, c.engine].filter(Boolean).join(" — "), vin: c.vin || "", _ctx: c };
 }
 
-/* ======================= Saisie manuelle ======================= */
-YEARS.forEach(y => $("mYear").add(new Option(y, y))); $("mYear").value = String(new Date().getFullYear() - 5);
-MAKES.forEach(m => $("mMake").add(new Option(m, m)));
-async function loadModelList(){
-  const y = $("mYear").value, mk = $("mMake").value, dl = $("mModelList"); dl.innerHTML = "";
-  if (!mk) return;
+/* ======================= Saisie manuelle (listes de choix) ======================= */
+const mY = $("mYear"), mM = $("mMake"), mMo = $("mModel"), mT = $("mTrim");
+YEARS.forEach(y => mY.add(new Option(y, y))); mY.value = String(new Date().getFullYear() - 5);
+MAKES.forEach(m => mM.add(new Option(m, m)));
+function opts(sel, items, ph){
+  sel.innerHTML = "";
+  if (ph != null) sel.add(new Option(ph, ""));
+  items.forEach(it => sel.add(typeof it === "string" ? new Option(it, it) : new Option(it.label, it.value)));
+}
+async function getJSON(url, ms = 12000){
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+  try { const r = await fetch(url, { signal: c.signal, headers: { Accept: "application/json" } }); if (!r.ok) throw new Error("http " + r.status); return await r.json(); }
+  finally { clearTimeout(t); }
+}
+const asArr = x => Array.isArray(x) ? x : x ? [x] : [];
+const squash = s => norm(s).replace(/[^a-z0-9]/g, "");
+
+// Versions d'après la base EPA (fueleconomy.gov) : moteur, transmission, traction
+function frEpa(model, text){
+  const s = String(text)
+    .replace(/Auto\s*\((?:AV(?:-S\d+)?|variable gear ratios)\)/i, "auto CVT")
+    .replace(/Auto\s*\((?:AM-S|AM|S|A)?(\d+)\)/i, "auto $1 vit.")
+    .replace(/Manual\s*\((?:M)?(\d+)\)/i, "manuelle $1 vit.")
+    .replace(/(\d+) cyl\b/i, "$1 cyl.")
+    .replace(/(\d+)\.(\d+) L/, "$1,$2 L")
+    .replace(/\bTurbo\b/i, "turbo").replace(/\bHybrid\b/i, "hybride");
+  return `${model} — ${s}`;
+}
+async function epaTrims(y, mk, md){
+  const mj = await getJSON(`https://www.fueleconomy.gov/ws/rest/vehicle/menu/model?year=${y}&make=${encodeURIComponent(mk)}`);
+  const base = squash(md);
+  const hits = asArr(mj && mj.menuItem).map(i => String(i.value || i.text || "")).filter(m => { const n = squash(m); return n && (n === base || n.startsWith(base)); });
+  const out = [];
+  for (const em of hits.slice(0, 8)){
+    try {
+      const oj = await getJSON(`https://www.fueleconomy.gov/ws/rest/vehicle/menu/options?year=${y}&make=${encodeURIComponent(mk)}&model=${encodeURIComponent(em)}`);
+      asArr(oj && oj.menuItem).forEach(o => out.push(frEpa(em, o.text)));
+    } catch {}
+  }
+  return [...new Set(out)];
+}
+async function claudeTrims(y, mk, md){
+  const t = await claude(`Liste les versions (finitions) du ${y} ${mk} ${md} vendu au Canada, avec leur moteur. Réponds uniquement par un tableau JSON de chaînes courtes, par exemple ["LE — 2,5 L 4 cyl.","XLE hybride — 2,5 L 4 cyl. hybride"].`, { maxTokens: 700 });
+  const a = t.indexOf("["), b = t.lastIndexOf("]");
+  let arr = []; try { arr = JSON.parse(t.slice(a, b + 1)); } catch {}
+  return asArr(arr).map(x => typeof x === "string" ? x : [x && x.version, x && x.moteur].filter(Boolean).join(" — ")).filter(Boolean);
+}
+
+let mSeq = 0;
+function mUpd(){ $("mGo").disabled = !(mM.value && mMo.value); }
+async function mLoadModels(){
+  const seq = ++mSeq, y = mY.value, mk = mM.value;
+  show("mErr", ""); $("mTrimHint").hidden = true; $("mTrimSt").textContent = "";
+  opts(mT, [], "Choisir le modèle d'abord"); mT.disabled = true;
+  if (!mk){ opts(mMo, [], "Choisir la marque d'abord"); mMo.disabled = true; $("mModelSt").textContent = ""; mUpd(); return; }
+  opts(mMo, [], "Chargement des modèles…"); mMo.disabled = true; $("mModelSt").textContent = "";
+  mUpd();
   const key = `vpicModels:${y}:${mk}`;
   let list = ls.get(key);
   if (!Array.isArray(list) || !list.length){
-    $("mModelSt").textContent = "chargement…";
     try {
-      const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/GetModelsForMakeYear/make/${encodeURIComponent(mk)}/modelyear/${y}?format=json`);
-      const j = await res.json();
-      list = [...new Set((j.Results || []).map(r => r.Model_Name).filter(Boolean))].sort((a,b) => a.localeCompare(b, "fr"));
+      const j = await getJSON(`https://vpic.nhtsa.dot.gov/api/vehicles/GetModelsForMakeYear/make/${encodeURIComponent(mk)}/modelyear/${y}?format=json`);
+      list = [...new Set(asArr(j && j.Results).map(r => String(r.Model_Name || "").trim()).filter(Boolean))];
       if (list.length) ls.set(key, list);
     } catch { list = []; }
-    $("mModelSt").textContent = list.length ? list.length + " modèles" : "";
   }
-  const shop = cars.filter(c => c.year === y && c.make === mk).map(c => c.model);
-  [...new Set([...shop, ...list])].forEach(m => dl.append(new Option(m, m)));
+  if (seq !== mSeq) return;
+  const shop = cars.filter(c => c.year === y && norm(c.make) === norm(mk)).map(c => c.model);
+  const all = [...new Set([...list, ...shop])].sort((a, b) => a.localeCompare(b, "fr"));
+  opts(mMo, all, all.length ? "Choisir le modèle…" : "Aucun modèle trouvé");
+  mMo.disabled = !all.length;
+  $("mModelSt").textContent = all.length ? all.length + " modèles" : "";
+  if (!all.length) show("mErr", "Impossible de charger la liste des modèles. Vérifie la connexion Internet, puis choisis la marque de nouveau.");
+  mUpd();
 }
-$("mYear").onchange = loadModelList; $("mMake").onchange = loadModelList;
+async function mLoadTrims(){
+  const seq = ++mSeq, y = mY.value, mk = mM.value, md = mMo.value;
+  show("mErr", ""); $("mTrimHint").hidden = true; $("mTrimSt").textContent = "";
+  mUpd();
+  if (!md){ opts(mT, [], "Choisir le modèle d'abord"); mT.disabled = true; return; }
+  opts(mT, [], "Chargement des versions…"); mT.disabled = true;
+  const key = `trims3:${y}:${mk}:${md}`;
+  let list = ls.get(key);
+  if (!Array.isArray(list) || !list.length){
+    list = [];
+    try { list = await epaTrims(y, mk, md); } catch {}
+    if (!list.length && apiKey()){ try { list = await claudeTrims(y, mk, md); } catch {} }
+    if (list.length) ls.set(key, list);
+  }
+  if (seq !== mSeq) return;
+  const shop = cars.filter(c => c.year === y && norm(c.make) === norm(mk) && norm(c.model) === norm(md)).map(c => c.trim).filter(Boolean);
+  const all = [...new Set([...shop, ...list])];
+  opts(mT, all, "Toutes versions");
+  mT.disabled = false;
+  $("mTrimSt").textContent = all.length ? all.length + " versions" : "";
+  if (!all.length){
+    $("mTrimHint").textContent = apiKey()
+      ? "La liste des versions n'est pas disponible pour ce modèle. Tu peux continuer avec « Toutes versions »."
+      : "La liste des versions n'est pas disponible pour ce modèle. Continue avec « Toutes versions », ou ajoute une clé Claude dans Réglages pour obtenir la liste.";
+    $("mTrimHint").hidden = false;
+  }
+  mUpd();
+}
+mY.onchange = mLoadModels; mM.onchange = mLoadModels; mMo.onchange = mLoadTrims;
 $("mGo").onclick = () => {
-  const c = { vin: "", year: $("mYear").value, make: $("mMake").value, model: $("mModel").value.trim(), trim: $("mTrim").value.trim(), engine: "", check: true, offline: false, manual: true };
   show("mErr", "");
-  if (!c.make || !c.model){ show("mErr", "Choisis la marque et indique le modèle."); return; }
-  const hits = matchesFor(c);
+  const c = { vin: "", year: mY.value, make: mM.value, model: mMo.value, trim: mT.value, engine: "", check: true, offline: false, manual: true };
+  if (!c.make || !c.model){ show("mErr", "Choisis la marque et le modèle."); return; }
+  current = c;
+  const hits = matchesFor(c).filter(x => !c.trim || !x.trim || norm(x.trim) === norm(c.trim));
   if (hits.length === 1){ openDetail(hits[0].id); return; }
-  current = c; renderIdManual(hits);
+  if (hits.length > 1){ $("filter").value = `${c.year} ${c.model}`; render(); tab("list"); return; }
+  edit(null, presetFrom(c), false);
+  if (apiKey()) aiFill();
 };
-function renderIdManual(hits){
-  const c = current, box = $("idCard"); box.innerHTML = ""; box.hidden = false;
-  box.append(el("h2", null, `${c.year} ${c.make} ${c.model}`));
-  if (c.trim) box.append(el("div","sub", c.trim));
-  if (hits.length){ const l = el("div","list"); hits.forEach(x => l.append(entry(x))); box.append(l); }
-  else box.append(el("p","hint","Aucune fiche de l'atelier pour ce véhicule."));
-  const a = el("div","actions");
-  const b = el("button","btn grow","Créer la fiche"); b.onclick = () => edit(null, presetFrom(c), false); a.append(b);
-  if (apiKey()){ const ai = el("button","btn alt grow","Fiche avec Claude"); ai.onclick = () => { edit(null, presetFrom(c), false); aiFill(); }; a.append(ai); }
-  box.append(a);
-  box.scrollIntoView({ behavior: "smooth", block: "start" });
-}
 
 /* ======================= Liste ======================= */
 function render(){
@@ -747,7 +822,7 @@ async function copy(c, btn){
 let editCtx = null;
 function edit(id, preset, fromAI){
   selected = id;
-  const c = id ? cars.find(x => x.id === id) : (preset || { year: $("mYear").value, make: "", model: "", trim: "" });
+  const c = id ? cars.find(x => x.id === id) : (preset || { year: mY.value, make: "", model: "", trim: "" });
   editCtx = (preset && preset._ctx) || (id ? { vin: c.vin, year: c.year, make: c.make, model: c.model, trim: c.trim } : null);
   FIELDS.forEach(([k]) => { $("f_" + k).value = c[k] || ""; });
   if (c.make && !MAKES.includes(c.make) && c.make !== "Autre"){ $("f_make").value = "Autre"; $("f_makeOther").value = c.make; }

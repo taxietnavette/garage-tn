@@ -1,5 +1,5 @@
 // Garage TN — cache hors ligne de l'application (pas des appels NHTSA ni Claude)
-const CACHE = "garage-tn-1.0.2";
+const CACHE = "garage-tn-1.1.0";
 const SHELL = ["./", "./index.html", "./zxing.min.js", "./manifest.webmanifest", "./logo.jpg", "./icon192.png", "./icon512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
