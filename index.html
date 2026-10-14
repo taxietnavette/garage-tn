@@ -95,6 +95,13 @@ dl{margin:0;display:grid;grid-template-columns:minmax(0,44%) minmax(0,1fr);gap:5
 dt{color:var(--muted);font-size:.88rem}
 dd{margin:0;font-family:var(--mono);font-size:.88rem;overflow-wrap:anywhere}
 dd.none{color:#6E6F78;font-family:var(--body);font-style:italic}
+.dtabs{display:flex;gap:6px;overflow-x:auto;margin:0 -4px;padding:0 4px 2px;scrollbar-width:none}
+.dtabs::-webkit-scrollbar{display:none}
+.dtab{flex:none;font:inherit;font-family:var(--display);font-weight:800;font-size:.95rem;letter-spacing:.04em;text-transform:uppercase;background:var(--raised);color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:8px 14px;cursor:pointer}
+.dtab.on{background:var(--red);border-color:var(--red);color:#fff}
+.dpanel{display:flex;flex-direction:column;gap:12px}
+.recall{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.recall p{margin:0;font-size:.9rem}
 .answer{white-space:pre-wrap;background:var(--raised);border-radius:10px;padding:12px;margin:0;font-size:.92rem}
 .confirm{display:flex;flex-direction:column;gap:10px;background:var(--red-soft);border:1px solid var(--red);border-radius:10px;padding:12px}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:.92rem;color:var(--ink);text-transform:none;letter-spacing:0;font-weight:500}
@@ -166,12 +173,7 @@ nav button.active{color:var(--ink);border-top-color:var(--red)}
   <!-- ================= DETAIL ================= -->
   <section id="v-detail" class="view" hidden>
     <div class="card" id="detail"></div>
-    <div class="card" id="askCard" hidden>
-      <div class="field"><label for="ask">Autre question sur ce véhicule</label><input id="ask" placeholder="Ex. couple des boulons d'étrier avant ?" autocomplete="off"></div>
-      <div class="actions"><button class="btn alt" id="askGo">Demander à Claude</button></div>
-      <p class="answer" id="answer" hidden></p>
-    </div>
-  </section>
+</section>
 
   <!-- ================= EDITEUR ================= -->
   <section id="v-editor" class="view" hidden>
@@ -245,7 +247,7 @@ nav button.active{color:var(--ink);border-top-color:var(--red)}
 <script src="zxing.min.js"></script>
 <script>
 "use strict";
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 const $ = id => document.getElementById(id);
 
 /* ======================= NIV : outils purs ======================= */
@@ -295,9 +297,11 @@ const YEARS = []; for (let y = new Date().getFullYear() + 1; y >= 1981; y--) YEA
 
 const GROUPS = [
   ["Véhicule", [["year","Année"],["make","Marque"],["model","Modèle"],["trim","Version / moteur"],["vin","NIV (facultatif)"]]],
+  ["Moteur", [["engineCode","Code moteur","2ZR-FAE"],["timing","Distribution (courroie / chaîne, intervalle)",""],["beltAcc","Courroie d'accessoires",""],["fuelTank","Réservoir de carburant (L)",""]]],
   ["Huile moteur", [["oil","Viscosité SAE","0W-20"],["oilNorm","Norme constructeur","API SP / ILSAC GF-6A"],["liters","Quantité avec filtre (L)","4,4"],["litersNoFilter","Quantité sans filtre (L)",""],["filter","Filtre à huile","voir catalogue"],["drainTorque","Couple bouchon de vidange","40 N·m (30 lb-pi)"]]],
-  ["Pneus et roues", [["tireFront","Dimension pneus avant","235/60R18"],["tireRear","Dimension pneus arrière","235/60R18"],["psiFront","Pression AV à froid","240 kPa (35 PSI)"],["psiRear","Pression AR à froid","240 kPa (35 PSI)"],["spare","Roue de secours",""],["boltPattern","Entraxe / filetage","5x114,3 · M12x1,5"],["torque","Couple des roues","103 N·m (76 lb-pi)"]]],
-  ["Liquides", [["trans","Fluide de transmission",""],["transQty","Quantité transmission (L)",""],["coolant","Liquide de refroidissement",""],["coolantQty","Capacité refroidissement (L)",""],["brake","Liquide de frein","DOT 3"],["diff","Différentiel / transfert",""]]],
+  ["Pneus et roues", [["tireFront","Dimension pneus avant","235/60R18"],["tireRear","Dimension pneus arrière","235/60R18"],["psiFront","Pression AV à froid","240 kPa (35 PSI)"],["psiRear","Pression AR à froid","240 kPa (35 PSI)"],["spare","Roue de secours",""],["boltPattern","Entraxe / filetage","5x114,3 · M12x1,5"],["torque","Couple des roues","103 N·m (76 lb-pi)"],["tpms","TPMS (type, réapprentissage)",""]]],
+  ["Liquides", [["trans","Fluide de transmission",""],["transQty","Quantité transmission (L)",""],["coolant","Liquide de refroidissement",""],["coolantQty","Capacité refroidissement (L)",""],["diff","Différentiel / transfert",""]]],
+  ["Freins", [["brake","Liquide de frein","DOT 3"],["brakeFront","Freins avant (type, disque min.)",""],["brakeRear","Freins arrière (type, disque min.)",""],["padMin","Épaisseur min. des garnitures",""]]],
   ["Électrique et filtres", [["plugs","Bougies (type, écart, intervalle)",""],["battery","Batterie (groupe, CCA)",""],["airFilter","Filtre à air",""],["cabinFilter","Filtre d'habitacle",""]]],
   ["Autres", [["ac","Climatisation (réfrigérant, quantité)",""],["wipers","Essuie-glaces (cond. / pass. / arr.)",""],["interval","Intervalle de vidange",""]]]
 ];
@@ -549,6 +553,7 @@ async function identify(raw){
       current.drive = driveText(r.DriveType);
       current.trans = [r.TransmissionStyle === "Automatic" ? "Automatique" : r.TransmissionStyle === "Manual/Standard" ? "Manuelle" : r.TransmissionStyle, r.TransmissionSpeeds && r.TransmissionSpeeds + " vitesses"].filter(Boolean).join(", ");
       current.body = r.BodyClass || "";
+      current.tpms = r.TPMS ? (/direct/i.test(r.TPMS) && !/indirect/i.test(r.TPMS) ? "Direct (capteurs dans les roues)" : /indirect/i.test(r.TPMS) ? "Indirect (par l'ABS)" : r.TPMS) : "";
       current.plant = [r.PlantCity, r.PlantCountry].filter(Boolean).map(titleCase).join(", ");
       current.nhtsaNote = r.ErrorCode && r.ErrorCode !== "0" ? r.ErrorText : "";
     } else {
@@ -579,7 +584,7 @@ function renderId(){
   box.append(el("div", "banner " + (c.check ? "ok" : "bad"), c.check ? "NIV valide : le chiffre de contrôle (9e caractère) est correct." : "Attention : le chiffre de contrôle (9e caractère) ne correspond pas. Revérifie le NIV, une lettre ou un chiffre est probablement mal lu."));
   if (c.nhtsaNote && !(c.check === false && /check digit/i.test(c.nhtsaNote))) box.append(el("p","hint", c.nhtsaNote));
   const dl = el("dl");
-  [["Année", c.year],["Marque", c.make],["Modèle", c.model],["Version", c.trim],["Moteur", c.engine],["Traction", c.drive],["Transmission", c.trans],["Carrosserie", c.body],["Usine", c.plant]]
+  [["Année", c.year],["Marque", c.make],["Modèle", c.model],["Version", c.trim],["Moteur", c.engine],["Traction", c.drive],["Transmission", c.trans],["Carrosserie", c.body],["TPMS", c.tpms],["Usine", c.plant]]
     .forEach(([k,v]) => { if (!v) return; dl.append(el("dt", null, k), el("dd", null, v)); });
   box.append(dl);
   if (c.offline && !c.raw){ box.append(el("div","status")); box.lastChild.append(el("span", null, c.model ? "" : "Modèle inconnu hors ligne : complète-le dans la fiche.")); }
@@ -746,42 +751,344 @@ function entry(c){
 $("filter").oninput = render;
 $("newBtn").onclick = () => edit(null, null, false);
 
-/* ======================= Détail ======================= */
-function openDetail(id){
-  const c = cars.find(x => x.id === id); if (!c) return;
+/* ======================= Détail (onglets façon ALLDATA / Mitchell) ======================= */
+const DTABS = [["fiche","Fiche"],["couples","Couples"],["entretien","Entretien"],["proc","Procédures"],["codes","Codes"],["rappels","Rappels"]];
+const PROCS = [
+  "Vidange d'huile et remise à zéro de l'indicateur d'entretien",
+  "Réapprentissage du TPMS après permutation ou changement de pneus",
+  "Remplacement des plaquettes et disques avant",
+  "Remplacement des plaquettes et disques arrière (frein de stationnement compris)",
+  "Remplacement de la batterie et réinitialisations",
+  "Remplacement des bougies d'allumage",
+  "Vidange et purge du liquide de refroidissement",
+  "Vérification du niveau et vidange de la transmission",
+  "Purge du liquide de frein",
+  "Remplacement du filtre à air et du filtre d'habitacle"
+];
+let dTab = "fiche";
+const recallCache = {};
+function carById(id){ return cars.find(x => x.id === id); }
+function saveExt(c, patch){
+  c.ext = Object.assign({}, c.ext || {}, patch);
+  c.updatedAt = Date.now();
+  persist();
+}
+const plain = s => String(s || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "").trim();
+
+function openDetail(id, tabName){
+  const c = carById(id); if (!c) return;
   selected = id;
+  if (tabName) dTab = tabName;
   const d = $("detail"); d.innerHTML = "";
   const head = el("div","head");
   head.append(el("h2", null, `${c.year} ${c.make} ${c.model}`), el("div","sub", [c.trim, c.vin && "NIV " + c.vin].filter(Boolean).join(" · ") || "Toutes versions"));
   d.append(head);
-  d.append(el("div", "banner " + (c.verified ? "ok" : "warn"), c.verified ? "Fiche vérifiée par l'atelier." : "Fiche non vérifiée. Confirme les valeurs avant l'intervention, puis coche « vérifié » dans Modifier."));
-  const tiles = el("div","tiles");
-  const liters = c.liters ? (/\bl\b/i.test(c.liters) ? c.liters : c.liters + " L") : "";
-  [["Huile", c.oil],["Quantité avec filtre", liters],["Pneus", c.tireFront],[c.psiFront && c.psiFront === c.psiRear ? "Pression AV et AR" : "Pression AV / AR", c.psiFront && c.psiFront === c.psiRear ? c.psiFront : [c.psiFront, c.psiRear].filter(Boolean).join(" / ")]].forEach(([k,v]) => {
-    const t = el("div","tile"); t.append(el("span","k",k), el("span","v", v || "—")); tiles.append(t);
+  const bar = el("div","dtabs"); bar.setAttribute("role","tablist");
+  DTABS.forEach(([k, lbl]) => {
+    const b = el("button", "dtab" + (k === dTab ? " on" : ""), lbl); b.type = "button"; b.setAttribute("role","tab"); b.dataset.k = k;
+    b.onclick = () => { dTab = k; openDetail(id); };
+    bar.append(b);
   });
-  d.append(tiles);
-  GROUPS.slice(1).forEach(([title, fields]) => {
-    const s = el("div","sec"); s.append(el("h3", null, title));
-    const dl = el("dl");
-    fields.forEach(([k, lbl]) => dl.append(el("dt", null, lbl), el("dd", c[k] ? null : "none", c[k] || "Non renseigné")));
-    s.append(dl); d.append(s);
-  });
-  const s = el("div","sec"); s.append(el("h3", null, "Source et notes"));
-  s.append(el("p","hint", "Source : " + (c.source || "Non renseignée")));
-  if (c.notes) s.append(el("p","hint", "Notes : " + c.notes));
-  d.append(s);
+  d.append(bar);
+  const panel = el("div","dpanel"); d.append(panel);
+  ({ fiche: pFiche, couples: pCouples, entretien: pEntretien, proc: pProc, codes: pCodes, rappels: pRappels })[dTab](c, panel);
   const a = el("div","actions");
   const mod = el("button","btn grow","Modifier"); mod.onclick = () => edit(c.id);
   const cp = el("button","btn alt","Copier"); cp.onclick = () => copy(c, cp);
   const back = el("button","btn alt","Retour"); back.onclick = () => { render(); tab("list"); };
   a.append(mod, cp, back); d.append(a);
-  $("askCard").hidden = !apiKey(); $("answer").hidden = true; $("ask").value = "";
-  tab("detail");
+  if ($("v-detail").hidden) tab("detail");
 }
+
+function needKey(panel, what){
+  panel.append(el("p","hint", `Pour obtenir ${what}, ajoute ta clé Claude dans Réglages.`));
+  const b = el("button","btn alt","Aller aux Réglages"); b.onclick = () => tab("settings"); panel.append(b);
+}
+function aiBadge(panel, when){
+  panel.append(el("div","banner warn", `Données proposées par Claude${when ? " le " + new Date(when).toLocaleDateString("fr-CA") : ""}, à confirmer avec la documentation du fabricant avant l'intervention.`));
+}
+
+/* ---- Fiche ---- */
+function pFiche(c, p){
+  p.append(el("div", "banner " + (c.verified ? "ok" : "warn"), c.verified ? "Fiche vérifiée par l'atelier." : "Fiche non vérifiée. Confirme les valeurs avant l'intervention, puis coche « vérifié » dans Modifier."));
+  const tiles = el("div","tiles");
+  const liters = c.liters ? (/\bl\b/i.test(c.liters) ? c.liters : c.liters + " L") : "";
+  const same = c.psiFront && c.psiFront === c.psiRear;
+  [["Huile", c.oil],["Quantité avec filtre", liters],["Pneus", c.tireFront],[same ? "Pression AV et AR" : "Pression AV / AR", same ? c.psiFront : [c.psiFront, c.psiRear].filter(Boolean).join(" / ")]].forEach(([k,v]) => {
+    const t = el("div","tile"); t.append(el("span","k",k), el("span","v", v || "—")); tiles.append(t);
+  });
+  p.append(tiles);
+  GROUPS.slice(1).forEach(([title, fields]) => {
+    const s = el("div","sec"); s.append(el("h3", null, title));
+    const dl = el("dl");
+    fields.forEach(([k, lbl]) => dl.append(el("dt", null, lbl), el("dd", c[k] ? null : "none", c[k] || "Non renseigné")));
+    s.append(dl); p.append(s);
+  });
+  const s = el("div","sec"); s.append(el("h3", null, "Source et notes"));
+  s.append(el("p","hint", "Source : " + (c.source || "Non renseignée")));
+  if (c.notes) s.append(el("p","hint", "Notes : " + c.notes));
+  p.append(s);
+}
+
+/* ---- Génération des données d'atelier (couples, entretien, problèmes connus) ---- */
+function extPrompt(c){
+  return `Tu es un technicien automobile expérimenté dans un garage au Québec (marché canadien).
+${vehicleCtx(c)}
+
+Prépare, comme dans ALLDATA ou Mitchell 1, les données d'atelier de CE véhicule précis (bon moteur, bonne transmission, bonne traction). Valeurs d'usine. Couples en N·m puis lb-pi entre parenthèses. Si une valeur dépend d'une variante, précise-le. Si tu n'es pas certain d'une valeur, ajoute « (à vérifier) ». N'invente jamais de numéro de pièce ni de numéro de bulletin.
+Réponds uniquement par un objet JSON de cette forme :
+{"torques":[{"piece":"Écrous de roue","valeur":"103 N·m (76 lb-pi)","note":"en étoile, en 2 passes"}],
+ "schedule":[{"intervalle":"Aux 8 000 km ou 6 mois","travaux":"Vidange huile et filtre; permutation des pneus; inspection freins"}],
+ "issues":[{"titre":"Consommation d'huile","detail":"Symptômes, cause connue, diagnostic et correction"}],
+ "timing":"Courroie ou chaîne de distribution, et intervalle de remplacement",
+ "lift":"Points de levage et précautions (pont, cric)",
+ "resets":"Réinitialisations courantes et comment les faire (indicateur d'huile, TPMS, batterie, angle de direction, papillon)"}
+torques : donne au moins, si applicables : écrous de roue ; bouchon de vidange d'huile ; couvercle de filtre à huile (si cartouche) ; bougies ; boulons de support d'étrier avant ; boulons de guide d'étrier avant ; boulons de support d'étrier arrière ; boulons de guide d'étrier arrière ; vis de purge ; écrou d'essieu / de moyeu avant ; écrou de rotule inférieure ; écrou d'embout de direction ; biellette de barre stabilisatrice ; boulons de jambe de force ; bouchons de remplissage et de vidange de transmission ; bouchons de différentiel et de boîte de transfert ; couvre-culasse.
+schedule : plan d'entretien du fabricant pour conditions sévères (hiver canadien), de 8 000 km jusqu'à 240 000 km, groupé par intervalle.
+issues : jusqu'à 8 problèmes connus ou pannes fréquentes de ce modèle et de cette année, avec indice de diagnostic.`;
+}
+async function genExt(c, panel, btn){
+  if (!apiKey()) return;
+  btn.disabled = true;
+  const st = el("div","status"); st.append(el("div","spin"), el("span", null, "Claude prépare les données d'atelier… (30 à 90 s)")); panel.append(st);
+  try {
+    const d = parseJson(await claude(extPrompt(c), { maxTokens: 6000 }));
+    if (!d || typeof d !== "object") throw Object.assign(new Error("Réponse illisible, réessaie."), { status: 0 });
+    saveExt(c, { torques: asArr(d.torques), schedule: asArr(d.schedule), issues: asArr(d.issues), timing: String(d.timing || ""), lift: String(d.lift || ""), resets: String(d.resets || ""), extAt: Date.now(), extModel: apiModel() });
+    openDetail(c.id);
+  } catch (e) { st.remove(); panel.append(el("p","err", claudeErr(e))); btn.disabled = false; }
+}
+function genButton(c, p, label){
+  if (!apiKey()) return needKey(p, "ces données");
+  const b = el("button","btn", label); b.onclick = () => genExt(c, p, b); p.append(b);
+}
+
+/* ---- Couples de serrage ---- */
+function pCouples(c, p){
+  const x = c.ext || {};
+  if (!asArr(x.torques).length){
+    p.append(el("p","hint","Aucun couple de serrage enregistré pour ce véhicule. Claude peut préparer la liste complète : roues, vidange, freins, suspension, direction, transmission."));
+    return genButton(c, p, "Générer les couples avec Claude");
+  }
+  aiBadge(p, x.extAt);
+  const s = el("div","sec");
+  const dl = el("dl");
+  x.torques.forEach(t => { if (!t) return; dl.append(el("dt", null, String(t.piece || "")), el("dd", null, [t.valeur, t.note].filter(Boolean).join(" — "))); });
+  s.append(dl); p.append(s);
+  const r = el("div","actions"); const b = el("button","btn alt","Régénérer"); b.onclick = () => genExt(c, p, b); r.append(b); if (apiKey()) p.append(r);
+}
+
+/* ---- Entretien ---- */
+function pEntretien(c, p){
+  const x = c.ext || {};
+  if (!asArr(x.schedule).length){
+    p.append(el("p","hint","Aucun plan d'entretien enregistré. Claude peut préparer le plan du fabricant (conditions sévères, hiver canadien), la distribution, les points de levage et les réinitialisations."));
+    return genButton(c, p, "Générer le plan d'entretien avec Claude");
+  }
+  aiBadge(p, x.extAt);
+  const s = el("div","sec"); s.append(el("h3", null, "Plan d'entretien (conditions sévères)"));
+  const dl = el("dl");
+  x.schedule.forEach(t => { if (!t) return; dl.append(el("dt", null, String(t.intervalle || "")), el("dd", null, String(t.travaux || ""))); });
+  s.append(dl); p.append(s);
+  [["Distribution", x.timing], ["Points de levage", x.lift], ["Réinitialisations", x.resets]].forEach(([t, v]) => {
+    if (!v) return; const q = el("div","sec"); q.append(el("h3", null, t), el("p","answer", plain(v))); p.append(q);
+  });
+  if (apiKey()){ const r = el("div","actions"); const b = el("button","btn alt","Régénérer"); b.onclick = () => genExt(c, p, b); r.append(b); p.append(r); }
+}
+
+/* ---- Procédures ---- */
+function procPrompt(c, title){
+  return `Tu es un technicien automobile expérimenté dans un garage au Québec.
+${vehicleCtx(c)}
+
+Rédige en français la procédure d'atelier « ${title} » pour CE véhicule précis, au niveau de détail d'ALLDATA ou Mitchell 1 :
+1. Temps de main-d'œuvre estimé (indicatif).
+2. Outils spéciaux, pièces et liquides (type, norme et quantité).
+3. Étapes numérotées précises, avec les couples de serrage (N·m et lb-pi) à l'étape concernée.
+4. Réinitialisations ou réapprentissages requis et comment les faire sur ce véhicule.
+5. Mises en garde et pièges fréquents sur ce modèle.
+Si une valeur est incertaine, écris « (à vérifier) ». Texte simple, sans gras ni titres markdown.`;
+}
+function pProc(c, p){
+  const x = c.ext || {}, done = x.procs || {};
+  p.append(el("p","hint","Choisis une procédure. La réponse est enregistrée dans la fiche pour la prochaine fois."));
+  const list = el("div","list");
+  PROCS.forEach(title => {
+    const b = el("button","entry"); b.type = "button";
+    const n = el("span","n"); n.append(el("b", null, title)); b.append(n);
+    b.append(el("span", "pill " + (done[title] ? "ok" : "warn"), done[title] ? "Enregistrée" : "Claude"));
+    b.onclick = () => showProc(c, p, title);
+    list.append(b);
+  });
+  p.append(list);
+  const s = el("div","sec"); s.append(el("h3", null, "Autre question sur ce véhicule"));
+  const inp = el("input"); inp.id = "ask"; inp.placeholder = "Ex. couple des boulons de berceau ?"; inp.autocomplete = "off";
+  const go = el("button","btn alt","Demander à Claude");
+  const out = el("p","answer"); out.hidden = true;
+  go.onclick = async () => {
+    const q = inp.value.trim(); if (!q) return;
+    if (!apiKey()){ out.hidden = false; out.textContent = "Ajoute ta clé Claude dans Réglages pour poser une question."; return; }
+    out.hidden = false; out.textContent = "Réflexion…"; go.disabled = true;
+    try { out.textContent = plain(await claude(`Tu es un technicien automobile au Québec.\n${vehicleCtx(c)}\n\nRéponds en français, précis et pratique, avec les spécifications d'usine en unités métriques (impériales entre parenthèses). Si tu n'es pas certain, dis-le clairement.\n\nQuestion : ${q}`, { maxTokens: 1500 })); }
+    catch (e) { out.textContent = claudeErr(e); }
+    go.disabled = false;
+  };
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") go.click(); });
+  s.append(inp, go, out); p.append(s);
+}
+async function showProc(c, p, title, regen){
+  const x = c.ext || {}, done = x.procs || {};
+  p.innerHTML = "";
+  const back = el("button","btn alt","← Toutes les procédures"); back.onclick = () => openDetail(c.id, "proc"); p.append(back);
+  p.append(el("h3", null, title));
+  if (done[title] && !regen){
+    aiBadge(p, done[title].at);
+    p.append(el("p","answer", done[title].text));
+    if (apiKey()){ const b = el("button","btn alt","Régénérer"); b.onclick = () => showProc(c, p, title, true); p.append(b); }
+    return;
+  }
+  if (!apiKey()) return needKey(p, "cette procédure");
+  const st = el("div","status"); st.append(el("div","spin"), el("span", null, "Claude rédige la procédure… (20 à 60 s)")); p.append(st);
+  try {
+    const text = plain(await claude(procPrompt(c, title), { maxTokens: 3500 }));
+    saveExt(c, { procs: Object.assign({}, done, { [title]: { text, at: Date.now() } }) });
+    showProc(c, p, title);
+  } catch (e) { st.remove(); p.append(el("p","err", claudeErr(e))); }
+}
+
+/* ---- Codes de défaut (DTC) ---- */
+function dtcPrompt(c, code){
+  return `Tu es un technicien en diagnostic automobile dans un garage au Québec.
+${vehicleCtx(c)}
+
+Code de défaut : ${code}
+Explique en français, pour CE véhicule précis :
+1. Définition exacte du code (générique et, s'il existe, spécifique au fabricant).
+2. Ce que le module surveille et les conditions d'enregistrement.
+3. Causes probables classées de la plus fréquente à la moins fréquente sur ce modèle.
+4. Diagnostic étape par étape avec les valeurs attendues (tensions, résistances, données en temps réel).
+5. Réparations courantes et bulletins techniques connus (indique « à vérifier » si tu n'es pas certain qu'ils existent ; n'invente pas de numéro).
+Texte simple, sans gras ni titres markdown.`;
+}
+function pCodes(c, p){
+  const x = c.ext || {}, done = x.dtc || {};
+  const s = el("div","field");
+  const l = el("label", null, "Code de défaut (ex. P0420, C1201, U0100)"); l.htmlFor = "dtcIn";
+  const inp = el("input"); inp.id = "dtcIn"; inp.maxLength = 5; inp.autocomplete = "off"; inp.autocapitalize = "characters"; inp.className = "vin-input"; inp.placeholder = "P0420";
+  s.append(l, inp); p.append(s);
+  const go = el("button","btn","Expliquer le code"); p.append(go);
+  const msg = el("p","err"); msg.hidden = true; p.append(msg);
+  const out = el("div"); p.append(out);
+  inp.oninput = () => { inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5); };
+  const run = async (code, regen) => {
+    msg.hidden = true; out.innerHTML = "";
+    if (!/^[PBCU][0-3][0-9A-F]{3}$/.test(code)){ msg.textContent = "Le code doit avoir 5 caractères : P, B, C ou U, puis 4 chiffres (ex. P0420)."; msg.hidden = false; return; }
+    const have = (carById(c.id).ext || {}).dtc || {};
+    if (have[code] && !regen){
+      out.append(el("h3", null, code)); aiBadge(out, have[code].at); out.append(el("p","answer", have[code].text));
+      if (apiKey()){ const b = el("button","btn alt","Régénérer"); b.onclick = () => run(code, true); out.append(b); }
+      return;
+    }
+    if (!apiKey()){ needKey(out, "l'explication de ce code"); return; }
+    const st = el("div","status"); st.append(el("div","spin"), el("span", null, "Claude analyse le code… (20 à 60 s)")); out.append(st);
+    go.disabled = true;
+    try {
+      const text = plain(await claude(dtcPrompt(c, code), { maxTokens: 3000 }));
+      const cc = carById(c.id);
+      saveExt(cc, { dtc: Object.assign({}, (cc.ext || {}).dtc, { [code]: { text, at: Date.now() } }) });
+      run(code);
+    } catch (e) { st.remove(); out.append(el("p","err", claudeErr(e))); }
+    go.disabled = false;
+  };
+  go.onclick = () => run(inp.value.trim());
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") go.click(); });
+  const codes = Object.keys(done);
+  if (codes.length){
+    const sec = el("div","sec"); sec.append(el("h3", null, "Codes déjà analysés"));
+    const row = el("div","actions");
+    codes.sort().forEach(k => { const b = el("button","btn alt", k); b.onclick = () => { inp.value = k; run(k); }; row.append(b); });
+    sec.append(row); p.append(sec);
+  }
+}
+
+/* ---- Rappels (NHTSA) et problèmes connus ---- */
+async function nhtsaRecalls(c){
+  const key = `${c.year}|${norm(c.make)}|${norm(c.model)}`;
+  if (recallCache[key]) return recallCache[key];
+  const q = `make=${encodeURIComponent(c.make)}&model=${encodeURIComponent(c.model)}&modelYear=${encodeURIComponent(c.year)}`;
+  const [r, k] = await Promise.all([
+    getJSON("https://api.nhtsa.gov/recalls/recallsByVehicle?" + q, 15000).catch(() => null),
+    getJSON("https://api.nhtsa.gov/complaints/complaintsByVehicle?" + q, 15000).catch(() => null)
+  ]);
+  if (!r && !k) throw new Error("offline");
+  const out = { recalls: asArr(r && r.results), complaints: asArr(k && k.results) };
+  recallCache[key] = out; return out;
+}
+function pRappels(c, p){
+  const x = c.ext || {};
+  const box = el("div"); p.append(box);
+  const st = el("div","status"); st.append(el("div","spin"), el("span", null, "Recherche des rappels et des plaintes (NHTSA)…")); box.append(st);
+  nhtsaRecalls(c).then(data => {
+    if (selected !== c.id || dTab !== "rappels") return;
+    box.innerHTML = "";
+    const rs = el("div","sec"); rs.append(el("h3", null, `Rappels de sécurité (${data.recalls.length})`));
+    if (!data.recalls.length) rs.append(el("p","hint","Aucun rappel trouvé dans la base NHTSA pour ce modèle et cette année."));
+    const tr = x.recallsFr || {};
+    data.recalls.forEach(r => {
+      const it = el("div","recall");
+      const id = String(r.NHTSACampaignNumber || "");
+      const f = tr[id];
+      it.append(el("b", null, `${id} · ${r.ReportReceivedDate || ""}`));
+      it.append(el("div","hint", String(r.Component || "")));
+      it.append(el("p", null, f ? f.resume : String(r.Summary || "")));
+      if (f ? f.remede : r.Remedy) it.append(el("p","hint", "Correction : " + (f ? f.remede : r.Remedy)));
+      rs.append(it);
+    });
+    if (data.recalls.length && apiKey() && data.recalls.some(r => !tr[r.NHTSACampaignNumber])){
+      const b = el("button","btn alt","Traduire en français"); rs.append(b);
+      b.onclick = async () => {
+        b.disabled = true; b.textContent = "Traduction…";
+        try {
+          const src = data.recalls.map(r => ({ id: r.NHTSACampaignNumber, resume: r.Summary, remede: r.Remedy }));
+          const t = await claude(`Traduis en français québécois clair ces rappels de sécurité automobile. Réponds uniquement par un tableau JSON [{"id":"...","resume":"...","remede":"..."}] dans le même ordre.\n\n${JSON.stringify(src)}`, { maxTokens: 4000 });
+          const a = t.indexOf("["), z = t.lastIndexOf("]"); const arr = JSON.parse(t.slice(a, z + 1));
+          const map = Object.assign({}, tr); asArr(arr).forEach(o => { if (o && o.id) map[o.id] = { resume: String(o.resume || ""), remede: String(o.remede || "") }; });
+          saveExt(carById(c.id), { recallsFr: map }); openDetail(c.id, "rappels");
+        } catch (e) { b.textContent = "Traduire en français"; b.disabled = false; rs.append(el("p","err", claudeErr(e))); }
+      };
+    }
+    rs.append(el("p","hint","Source : NHTSA (États-Unis). Pour les véhicules vendus au Canada, vérifie aussi la base de Transports Canada ou chez le concessionnaire avec le NIV."));
+    box.append(rs);
+
+    const ks = el("div","sec"); ks.append(el("h3", null, `Plaintes des propriétaires (${data.complaints.length})`));
+    if (!data.complaints.length) ks.append(el("p","hint","Aucune plainte enregistrée."));
+    else {
+      const count = {};
+      data.complaints.forEach(k => String(k.components || "").split(",").map(s => s.trim()).filter(Boolean).forEach(s => count[s] = (count[s] || 0) + 1));
+      const top = Object.entries(count).sort((a, b) => b[1] - a[1]).slice(0, 8);
+      const dl = el("dl"); top.forEach(([k, n]) => dl.append(el("dt", null, k), el("dd", null, n + " plainte" + (n > 1 ? "s" : ""))));
+      ks.append(el("p","hint","Systèmes les plus souvent signalés :"), dl);
+    }
+    box.append(ks);
+  }).catch(() => {
+    box.innerHTML = ""; box.append(el("p","err","Impossible de joindre la base NHTSA. Vérifie la connexion Internet."));
+  });
+  const is = el("div","sec"); is.append(el("h3", null, "Problèmes connus"));
+  if (asArr(x.issues).length){
+    aiBadge(is, x.extAt);
+    x.issues.forEach(i => { if (!i) return; const it = el("div","recall"); it.append(el("b", null, String(i.titre || "")), el("p", null, String(i.detail || ""))); is.append(it); });
+  } else if (apiKey()){
+    is.append(el("p","hint","Claude peut lister les pannes fréquentes de ce modèle (avec les couples et le plan d'entretien)."));
+    const b = el("button","btn alt","Générer avec Claude"); b.onclick = () => genExt(c, is, b); is.append(b);
+  } else is.append(el("p","hint","Ajoute ta clé Claude dans Réglages pour obtenir les pannes fréquentes de ce modèle."));
+  p.append(is);
+}
+
 function sheetText(c){
   let t = `GARAGE TN — ${label(c)}${c.vin ? "\nNIV " + c.vin : ""}\n${c.verified ? "Fiche vérifiée" : "FICHE NON VÉRIFIÉE"}\n`;
   GROUPS.slice(1).forEach(([title, fields]) => { const lines = fields.filter(([k]) => c[k]).map(([k,l]) => `- ${l} : ${c[k]}`); if (lines.length) t += `\n${title.toUpperCase()}\n${lines.join("\n")}\n`; });
+  const x = c.ext || {};
+  if (asArr(x.torques).length) t += `\nCOUPLES DE SERRAGE (à vérifier)\n` + x.torques.map(q => `- ${q.piece} : ${q.valeur}${q.note ? " — " + q.note : ""}`).join("\n") + "\n";
   if (c.source) t += `\nSource : ${c.source}\n`;
   if (c.notes) t += `Notes : ${c.notes}\n`;
   return t;
@@ -855,6 +1162,9 @@ $("save").onclick = () => {
   if (c.vin && !VIN.valid(c.vin)) return show("editErr", "Le NIV doit contenir 17 caractères (lettres I, O et Q exclues).");
   if (c.verified && !c.source) return show("editErr", "Indique la source officielle avant de marquer la fiche comme vérifiée.");
   c.updatedAt = Date.now();
+  const prev = selected && carById(selected); if (prev && prev.ext) c.ext = prev.ext;
+  if (prev && prev.decoded) c.decoded = prev.decoded;
+  else if (editCtx && (editCtx.engine || editCtx.drive || editCtx.trans)) c.decoded = { engine: editCtx.engine || "", drive: editCtx.drive || "", trans: editCtx.trans || "", body: editCtx.body || "", tpms: editCtx.tpms || "" };
   const old = cars;
   cars = cars.filter(x => x.id !== c.id); cars.unshift(c);
   if (!persist()){ cars = old; return show("editErr", "Impossible d'enregistrer : l'espace de stockage de l'iPhone est plein ou bloqué."); }
@@ -899,11 +1209,11 @@ function parseJson(t){
   return null;
 }
 function vehicleCtx(c){
-  const r = (current && current.vin && c.vin === current.vin) ? current : c;
+  const r = c.decoded || ((current && current.vin && c.vin === current.vin) ? current : c);
   return [
     `Année : ${c.year}`, `Marque : ${c.make}`, `Modèle : ${c.model}`,
     c.trim && `Version / moteur : ${c.trim}`, c.vin && `NIV : ${c.vin}`,
-    r && r.engine && `Moteur décodé du NIV : ${r.engine}`, r && r.drive && `Traction : ${r.drive}`, r && r.trans && `Transmission : ${r.trans}`, r && r.body && `Carrosserie : ${r.body}`
+    r && r.engine && `Moteur décodé du NIV : ${r.engine}`, r && r.drive && `Traction : ${r.drive}`, r && r.trans && `Transmission : ${r.trans}`, r && r.body && `Carrosserie : ${r.body}`, r && r.tpms && `TPMS : ${r.tpms}`
   ].filter(Boolean).join("\n");
 }
 function aiPrompt(c){
@@ -914,7 +1224,7 @@ ${vehicleCtx(c)}
 Donne les spécifications d'usine (manuel du propriétaire / fabricant) pour CE véhicule précis. Unités métriques d'abord, impériales entre parenthèses pour les pressions (kPa et PSI) et les couples (N·m et lb-pi). Capacités en litres.
 Si une valeur varie selon le moteur, la transmission ou la taille de roue, indique chaque cas brièvement. Si tu n'es pas certain d'une valeur, ajoute « (à vérifier) ». N'invente jamais un numéro de pièce : écris « voir catalogue ».
 Réponds uniquement par un objet JSON plat avec ces clés (valeurs = chaînes courtes) : ${keys}, "notes".
-oil = viscosité SAE ; oilNorm = norme (API, ILSAC, dexos, VW 508…) ; liters = huile avec filtre ; litersNoFilter = sans filtre ; filter = filtre à huile ; drainTorque = couple du bouchon de vidange ; tireFront/tireRear = dimensions d'origine ; psiFront/psiRear = pression à froid ; spare = roue de secours ; boltPattern = entraxe et filetage ; torque = couple de serrage des roues ; trans = type de fluide de transmission ; transQty = quantité vidange / totale ; coolant = type ; coolantQty = capacité ; brake = DOT ; diff = différentiel et boîte de transfert ; plugs = bougies (type, écart, intervalle) ; battery = groupe BCI et CCA ; airFilter / cabinFilter = intervalle ; ac = réfrigérant et quantité en grammes ; wipers = longueurs ; interval = intervalle de vidange (normal / conditions sévères hiver canadien) ; notes = remarques utiles pour le mécanicien.`;
+engineCode = code moteur du fabricant ; timing = courroie ou chaîne de distribution et intervalle ; beltAcc = courroie d'accessoires (type, intervalle) ; fuelTank = capacité du réservoir ; oil = viscosité SAE ; oilNorm = norme (API, ILSAC, dexos, VW 508…) ; liters = huile avec filtre ; litersNoFilter = sans filtre ; filter = filtre à huile ; drainTorque = couple du bouchon de vidange ; tireFront/tireRear = dimensions d'origine ; psiFront/psiRear = pression à froid ; spare = roue de secours ; boltPattern = entraxe et filetage ; torque = couple de serrage des roues ; tpms = type de TPMS (direct/indirect) et méthode de réapprentissage ; trans = type de fluide de transmission ; transQty = quantité vidange / totale ; coolant = type ; coolantQty = capacité ; brake = DOT ; brakeFront / brakeRear = type de frein et épaisseur minimale du disque ou diamètre max. du tambour ; padMin = épaisseur minimale des garnitures ; diff = différentiel et boîte de transfert ; plugs = bougies (type, écart, intervalle) ; battery = groupe BCI et CCA ; airFilter / cabinFilter = intervalle ; ac = réfrigérant et quantité en grammes ; wipers = longueurs ; interval = intervalle de vidange (normal / conditions sévères hiver canadien) ; notes = remarques utiles pour le mécanicien.`;
 }
 let aiCtl = null;
 $("aiFill").onclick = () => aiFill();
@@ -937,16 +1247,7 @@ async function aiFill(){
 }
 $("aiStop").onclick = () => aiCtl && aiCtl.abort();
 
-$("askGo").onclick = async () => {
-  const q = $("ask").value.trim(); const c = cars.find(x => x.id === selected);
-  if (!q || !c || !apiKey()) return;
-  const out = $("answer"); out.hidden = false; out.textContent = "Réflexion…"; $("askGo").disabled = true;
-  try {
-    out.textContent = await claude(`Tu es un technicien automobile au Québec.\n${vehicleCtx(c)}\n\nRéponds en français, court et précis, avec les spécifications d'usine en unités métriques (impériales entre parenthèses). Si tu n'es pas certain, dis-le clairement.\n\nQuestion : ${q}`, { maxTokens: 1000 });
-  } catch (e) { out.textContent = claudeErr(e); }
-  $("askGo").disabled = false;
-};
-$("ask").addEventListener("keydown", e => { if (e.key === "Enter") $("askGo").click(); });
+
 
 /* ======================= Réglages ======================= */
 $("apiKey").value = apiKey(); $("apiModel").value = apiModel();
@@ -996,6 +1297,8 @@ $("impYes").onclick = () => {
     const c = { id: String(raw.id) };
     FIELDS.forEach(([k]) => c[k] = raw[k] == null ? "" : String(raw[k]));
     c.source = String(raw.source || ""); c.notes = String(raw.notes || ""); c.verified = !!raw.verified; c.updatedAt = Number(raw.updatedAt) || Date.now();
+    if (raw.ext && typeof raw.ext === "object") c.ext = raw.ext;
+    if (raw.decoded && typeof raw.decoded === "object") c.decoded = raw.decoded;
     ids.add(c.id); return c;
   });
   cars = cars.filter(x => !ids.has(x.id)).concat(incoming);
